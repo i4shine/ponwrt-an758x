@@ -1,0 +1,286 @@
+name: Build Packages (same kernel tree, incremental) manual
+
+# ==============================================================================
+# 只允许手动触发（workflow_dispatch）：无 push / schedule 触发。
+#
+# 设计要点
+# 1) 与固件同源同 ABI：本工作流用 configs/an7581.config + release.config +
+#    pon-userspace.config 生成与固件完全一致的 .config，先编 host 工具链、
+#    再编 target/linux（内核树），最后才编 kmod 与上层包。kmod 的 vermagic
+#    因此和 build-firmware-manual.yml 出来的固件逐字节一致，apk 可直接装。
+# 2) 增量：dl / .ccache / build_dir / staging_dir 全部走滚动缓存（key 带 run_id，
+#    restore-keys 前缀命中上一轮），命中后 make 自身按时间戳跳过未变目标；
+#    再配合 inputs.only 只编指定包，单个包改动只重编该包及其依赖。
+# 3) 不静默丢弃：按 configs/pon-userspace-packages.txt 逐包核对真实 apk，
+#    缺包、目录缺失、编译失败都会让 job 失败并在 summary 里列出。
+# ==============================================================================
+
+on:
+  workflow_dispatch:
+    inputs:
+      device:
+        description: '目标机型（决定 .config 里的设备锁定）'
+        required: true
+        default: 'hg5585f-ct'
+        type: choice
+        options:
+          - 'hg5585f-ct'
+          - 'hg5382a'
+      cache_mode:
+        description: '缓存模式（完全重建会丢弃所有缓存）'
+        required: true
+        default: '使用缓存'
+        type: choice
+        options:
+          - '使用缓存'
+          - '完全重建'
+      reuse_build_tree:
+        description: '复用 build_dir/staging_dir 缓存（数 GB，命中才是真增量）'
+        required: true
+        default: true
+        type: boolean
+      only:
+        description: '只编这些 apk（逗号分隔，all=全部；例：tempinfo,camlive）'
+        required: true
+        default: 'all'
+        type: string
+      with_kernel:
+        description: '是否先编内核树（首次/改内核配置时必须为 true）'
+        required: true
+        default: true
+        type: boolean
+
+concurrency:
+  group: manual-packages-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CCACHE_COMPILERCHECK: '%compiler% -dumpmachine; %compiler% -dumpversion'
+  CCACHE_MAXSIZE: 5G
+  CCACHE_DIR: ${{ github.workspace }}/.ccache
+
+jobs:
+  packages:
+    name: Build packages (${{ inputs.device }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 420
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Free build space
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache
+          sudo docker image prune --all --force 2>/dev/null || true
+          sudo apt-get clean
+
+      - name: Install build dependencies
+        env:
+          DEBIAN_FRONTEND: noninteractive
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            asciidoc autoconf automake autopoint binutils bison build-essential \
+            bzip2 ccache clang cmake cpio curl device-tree-compiler dwarves flex gawk \
+            gettext git g++-multilib gcc-multilib gperf help2man intltool \
+            libelf-dev libglib2.0-dev libgmp3-dev libltdl-dev libmpc-dev \
+            libmpfr-dev libncurses-dev libpython3-dev libreadline-dev libssl-dev \
+            libtool libyaml-dev lld llvm ninja-build p7zip-full pahole patch pkgconf \
+            python3 python3-docutils python3-pip python3-ply python3-pyelftools \
+            qemu-utils re2c rsync scons squashfs-tools subversion swig texinfo \
+            uglifyjs unzip wget xmlto xxd zlib1g-dev zstd
+
+      - name: Restore build tree cache (真增量的关键)
+        if: inputs.reuse_build_tree && inputs.cache_mode != '完全重建'
+        continue-on-error: true
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            build_dir/target-*
+            build_dir/host
+            staging_dir/target-*
+            staging_dir/host
+          key: ponwrt-tree-${{ inputs.device }}-${{ hashFiles('configs/*.config', 'target/linux/airoha/an7581/config-6.18', 'feeds.conf.default') }}-${{ github.run_id }}
+          restore-keys: |
+            ponwrt-tree-${{ inputs.device }}-${{ hashFiles('configs/*.config', 'target/linux/airoha/an7581/config-6.18', 'feeds.conf.default') }}-
+            ponwrt-tree-${{ inputs.device }}-
+
+      - name: Restore downloads cache
+        if: inputs.cache_mode != '完全重建'
+        uses: actions/cache/restore@v4
+        with:
+          path: dl
+          key: ponwrt-dl-pkg-${{ hashFiles('feeds.conf.default', 'configs/*.config') }}-${{ github.run_id }}
+          restore-keys: |
+            ponwrt-dl-pkg-${{ hashFiles('feeds.conf.default', 'configs/*.config') }}-
+            ponwrt-dl-pkg-
+
+      - name: Restore compiler ccache
+        if: inputs.cache_mode != '完全重建'
+        continue-on-error: true
+        uses: actions/cache/restore@v4
+        with:
+          path: .ccache
+          key: ponwrt-ccache-pkg-${{ inputs.device }}-${{ github.run_id }}
+          restore-keys: |
+            ponwrt-ccache-pkg-${{ inputs.device }}-
+            ponwrt-ccache-pkg-
+
+      - name: Update and install feeds
+        run: |
+          ./scripts/feeds update -a
+          ./scripts/feeds install -a
+
+      - name: Prepare custom packages and patches
+        run: |
+          bash ./scripts/customize.sh
+
+      - name: Configure (same as firmware)
+        run: |
+          set -euo pipefail
+
+          ./scripts/kconfig.pl + \
+            configs/an7581.config \
+            configs/release.config \
+            configs/pon-userspace.config > .config
+
+          sed -i '/^CONFIG_KERNEL_DEBUG_INFO_REDUCED=/d' .config
+          printf 'CONFIG_KERNEL_DEBUG_INFO=y\n# CONFIG_KERNEL_DEBUG_INFO_REDUCED is not set\nCONFIG_KERNEL_DEBUG_INFO_BTF=y\nCONFIG_KERNEL_DEBUG_INFO_BTF_MODULES=y\nCONFIG_KERNEL_MODULE_ALLOW_BTF_MISMATCH=y\nCONFIG_KERNEL_KPROBES=y\nCONFIG_KERNEL_BPF_EVENTS=y\n' >> .config
+
+          if [ "${{ inputs.cache_mode }}" != "完全重建" ]; then
+            sed -i '/^CONFIG_DEVEL=/d; /^CONFIG_CCACHE=/d' .config
+            printf 'CONFIG_DEVEL=y\nCONFIG_CCACHE=y\n' >> .config
+          fi
+
+          make defconfig
+
+          # 机型锁定：defconfig 之后只保留本次目标机型，之后不再 defconfig
+          case "${{ inputs.device }}" in
+            hg5585f-ct) DEVICE="fiberhome_hg5585f-ct" ;;
+            hg5382a)    DEVICE="fiberhome_hg5382a" ;;
+            *)          echo "::error::未知机型 ${{ inputs.device }}"; exit 1 ;;
+          esac
+          sed -i '/^CONFIG_TARGET_DEVICE_airoha_an7581_DEVICE_/d' .config
+          sed -i '/^# CONFIG_TARGET_DEVICE_airoha_an7581_DEVICE_.* is not set/d' .config
+          printf 'CONFIG_TARGET_DEVICE_airoha_an7581_DEVICE_%s=y\n' "$DEVICE" >> .config
+          grep -q "^CONFIG_TARGET_DEVICE_airoha_an7581_DEVICE_${DEVICE}=y" .config \
+            || { echo "::error::机型符号未落地: $DEVICE"; exit 1; }
+
+      - name: Build host tools and toolchain
+        run: |
+          set -euo pipefail
+          make -j"$(nproc)" tools/compile
+          make -j"$(nproc)" toolchain/compile
+
+      - name: Build kernel tree (kmod ABI 来源)
+        if: inputs.with_kernel
+        run: |
+          set -euo pipefail
+          # 编内核本身与内核模块树；kmod 包的 vermagic 取自这里
+          make -j"$(nproc)" target/linux/compile
+          make -j"$(nproc)" target/linux/install || true
+
+      - name: Build kernel modules selected by config
+        run: |
+          set -euo pipefail
+          make -j"$(nproc)" package/kernel/linux/compile
+
+      - name: Build pon-userspace packages (incremental, no silent drop)
+        run: |
+          set -euo pipefail
+          mkdir -p output build_log
+          manifest="configs/pon-userspace-packages.txt"
+          [ -f "$manifest" ] || { echo "::error::缺少 $manifest"; exit 1; }
+
+          only="${{ inputs.only }}"
+          fail=0; summary=""; missing_dirs=""
+          while IFS='|' read -r path apk required; do
+            [ -n "${path:-}" ] || continue
+            case "$path" in \#*) continue ;; esac
+            if [ "$only" != "all" ]; then
+              echo ",$only," | grep -q ",$apk," || continue
+            fi
+            if [ ! -d "$path" ]; then
+              if [ "$required" = "optional" ]; then
+                summary="${summary}\nSKIP   $apk（源码目录 $path 不存在，optional）"; missing_dirs="$missing_dirs $apk"
+                continue
+              fi
+              echo "::error::必需包 $apk 的源码目录不存在: $path"
+              summary="${summary}\nFAIL   $apk（源码目录缺失 $path）"; fail=1
+              continue
+            fi
+            echo ">>> 编译 $apk ($path)"
+            if make -j"$(nproc)" "$path/compile" 2>&1 | tee "build_log/${apk}.log"; then
+              hit=$(find bin/packages -type f -name "${apk}-[0-9]*.apk" | head -n 1)
+              if [ -n "$hit" ]; then
+                summary="${summary}\nOK     $apk -> $hit"
+                cp -f "$hit" output/
+              else
+                echo "::error::$apk 编译命令成功但没有产出 apk"
+                summary="${summary}\nFAIL   $apk（无 apk 产出）"; fail=1
+              fi
+            else
+              echo "::error::$apk 编译失败，日志 build_log/${apk}.log"
+              summary="${summary}\nFAIL   $apk（编译失败）"; fail=1
+            fi
+          done < "$manifest"
+
+          {
+            echo "# pon-userspace 逐包结果（${{ inputs.device }}）"
+            echo "$summary"
+            echo ""
+            [ -n "$missing_dirs" ] && echo "optional 缺失：$missing_dirs"
+          } > build_log/package-summary.txt
+          cat build_log/package-summary.txt
+          {
+            echo "### 逐包结果（${{ inputs.device }}）"
+            echo '```'
+            cat build_log/package-summary.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          cd output
+          for f in *; do [ -f "$f" ] && sha256sum "$f" > "$f.sha256"; done
+          exit $fail
+
+      - name: Save downloads cache
+        if: always() && inputs.cache_mode != '完全重建'
+        continue-on-error: true
+        uses: actions/cache/save@v4
+        with:
+          path: dl
+          key: ponwrt-dl-pkg-${{ hashFiles('feeds.conf.default', 'configs/*.config') }}-${{ github.run_id }}
+
+      - name: Save compiler ccache
+        if: always() && inputs.cache_mode != '完全重建'
+        continue-on-error: true
+        uses: actions/cache/save@v4
+        with:
+          path: .ccache
+          key: ponwrt-ccache-pkg-${{ inputs.device }}-${{ github.run_id }}
+
+      - name: Save build tree cache
+        if: always() && inputs.reuse_build_tree && inputs.cache_mode != '完全重建'
+        continue-on-error: true
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            build_dir/target-*
+            build_dir/host
+            staging_dir/target-*
+            staging_dir/host
+          key: ponwrt-tree-${{ inputs.device }}-${{ hashFiles('configs/*.config', 'target/linux/airoha/an7581/config-6.18', 'feeds.conf.default') }}-${{ github.run_id }}
+
+      - name: Upload packages artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: PonWrt-packages-${{ inputs.device }}-${{ github.run_number }}
+          path: |
+            output/*
+            build_log/package-summary.txt
+            build_log/*.log
+          retention-days: 14

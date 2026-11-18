@@ -1,0 +1,20 @@
+# build-packages-incremental.yml 的编译清单
+# 格式：<构建路径>|<apk 包名>|<required 或 optional>
+# 顺序即编译顺序：先自有源码包，再使用 feed 内已安装的依赖包。
+# 说明：optional 表示源码需要外部注入（customize.sh 里从上游仓库拉取），
+#       拉取失败时只记 SKIP，不把构建判失败。
+
+package/pon-userspace/tempinfo|tempinfo|required
+package/pon-userspace/camlive|camlive|required
+package/pon-userspace/go2rtc|go2rtc|required
+package/pon-userspace/gensio|gensio-bin|required
+package/pon-userspace/ser2net|ser2net|required
+package/pon-userspace/luci-app-camlive|luci-app-camlive|required
+package/pon-userspace/luci-app-go2rtc|luci-app-go2rtc|required
+package/pon-userspace/luci-app-ser2net|luci-app-ser2net|required
+package/pon-userspace/luci-app-blueaudio|luci-app-blueaudio|required
+package/pon-userspace/luci-app-btsp|luci-app-btsp|required
+package/pon-userspace/bluez-alsa|bluez-alsa|optional
+package/feeds/packages/bluez|bluez-daemon|required
+package/feeds/packages/bluez|bluez-libs|required
+package/feeds/packages/dbus|dbus|required

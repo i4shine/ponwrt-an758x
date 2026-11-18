@@ -404,3 +404,23 @@ CONFIG_HZ_250=y
 CONFIG_PREEMPT=y
 CONFIG_PREEMPT_BUILD=y
 CONFIG_NET_SCH_FQ=y
+
+# ---- pon-userspace 上层应用支持（本仓库追加）----
+# 内核内置：NFS server 全链（用户已拍板「内置」），不产出 kmod 空壳包
+CONFIG_NFS_FS=y
+CONFIG_NFS_V4=y
+CONFIG_NFSD=y
+CONFIG_NFSD_V4=y
+CONFIG_LOCKD=y
+CONFIG_SUNRPC=y
+CONFIG_GRACE_PERIOD=y
+CONFIG_CRYPTO_MD5=y
+CONFIG_CRYPTO_SHA256=y
+CONFIG_CRYPTO_AES=y
+# 调试/诊断基础设施（tailscale/zerotier/honk/diskman 依赖）
+CONFIG_DEBUG_FS=y
+CONFIG_DEVMEM=y
+CONFIG_NETLINK_DIAG=y
+CONFIG_INET_DIAG=y
+# cfg80211 在 CI 无 TTY 下 syncconfig 的已知死锁符号，显式定值
+CONFIG_NL80211_TESTMODE=y
