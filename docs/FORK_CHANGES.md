@@ -11,7 +11,7 @@
 
 | 目标 | 落点 |
 | --- | --- |
-| 支持我们前面编译的上层应用 | `configs/pon-userspace.config`（选包）+ `target/linux/airoha/an7581/config-6.18`（内核内置项） |
+| 支持我们前面编译的上层应用 | `configs/pon-packages/*.config`（按类别拆分的 7 个选包模块）+ `target/linux/airoha/an7581/config-6.18`（内核内置项） |
 | 增加 HG5382A 固件支持 | 新增 `build-firmware-manual.yml` 的机型锁定与产物收集（上游机型定义与 `CONFIG_TARGET_DEVICE_...hg5382a=y` 本来就有，缺口是产物被 `find` 名字过滤静默丢弃） |
 | 为固件编译软件包 | 新增 `build-packages-incremental.yml` |
 | 增量编译 | 该工作流的滚动缓存（dl / ccache / build_dir / staging_dir）+ `only` 只编指定包 |
@@ -27,7 +27,7 @@
 - **基线**：直接沿用上游 `build-zn504.yml` 的全部骨架 —— 依赖安装列表、`dl` 缓存 key、`customize.sh`、`make download`、编译命令、ccache 存取、产物 sha256、Artifact 上传、Release 发布。
 - **触发**：删除 `push` 自动触发，只保留 `workflow_dispatch`（手动运行）；新增 `devices` 输入。
 - **相对上游的四处改动**：
-  1. 配置追加 `configs/pon-userspace.config`（上游只合 `an7581.config` + `release.config`）；
+  1. 配置追加 `configs/pon-packages/*.config`（按类别拆分的选包模块，上游只合 `an7581.config` + `release.config`）；
   2. `make defconfig` 之后做机型锁定（先删掉全部 `CONFIG_TARGET_DEVICE_airoha_an7581_DEVICE_*`，再写入本次目标），之后**不再** `defconfig`（避免机型行被重算掉）；其它机型关闭后不再重复建 rootfs；
   3. 产物收集的 `find` 加入 `*hg5382a*`（上游只匹配 `zn504*` / `hg5585f-ct*` / `hg5585f-cu*`，HG5382A 会被静默丢弃）；
   4. 新增「Verify requested firmware exists」步骤，缺目标 `.itb` 直接失败。
@@ -48,26 +48,28 @@
 - **不静默丢弃**：按 `configs/pon-userspace-packages.txt` 逐包编译并核对真实 apk；目录缺失、无 apk 产出、编译失败都会让 job 失败，并把 OK/FAIL/SKIP 写进 `build_log/package-summary.txt` 与 Step Summary。
 - **输入**：`device`、`cache_mode`、`reuse_build_tree`、`only`、`with_kernel`（首次或改内核配置时必须 true）。
 
-### 3. `configs/pon-userspace.config`（新增）
+### 3. `configs/pon-packages/*.config`（新增，7 个分类模块）
 
-固件/包的选包清单，按用途分段：
+原来一个 `pon-userspace.config` 里混装了「上层应用」和「kmod」，现在按类别拆成独立模块，工作流用 glob 一次性合并（`kconfig.pl + configs/an7581.config configs/release.config configs/pon-packages/*.config`）。合并顺序由文件名前缀决定，后面的可覆盖前面的。
 
-- 自有应用：`tempinfo`、`camlive`、`go2rtc`、`gensio`、`ser2net` 及 4 个 `luci-app-*`（camlive / go2rtc / ser2net / btsp）；
-- 蓝牙串口前端依赖：`bluez-daemon`、`bluez-libs`、`dbus`（**不引 `bluez-alsa`**：它只在第三方仓库 `raphikWasHere/bluealsa4openwrt` 里有源码，按你的决定不引入，`luci-app-blueaudio` 因此也不参与编译）；
-- USB 主机/存储/串口：`kmod-usb-core`、`kmod-usb3`、`kmod-usb-xhci-hcd/-mtk`、`kmod-usb-storage(-uas/-extras)`、`kmod-usb-serial(-ch341/-cp210x/-ftdi/-pl2303)`、`kmod-usb-acm`、`kmod-usb-hid`、`kmod-usb-net(-cdc-ether/-cdc-ncm/-rtl8152/-asix-ax88179)`；
-- 摄像头/音频：`kmod-video-core`、`kmod-video-videobuf2`、`kmod-video-uvc`、`audio-support`、`kmod-input-core`、`kmod-sound-core`、`kmod-usb-audio`、`alsa-utils`；
-- 蓝牙：`kmod-bluetooth`、`kmod-btusb`、`kmod-btbcm`、`kmod-btmtk`、`kmod-hci-uart`；
-- USB 无线网卡：`kmod-rtw88*`、`kmod-rtl8xxxu`、`kmod-rtl8192cu`、`linux-firmware-rtw88`；
-- 文件系统/共享：`kmod-fs-ext4/-vfat/-exfat/-ntfs3/-cifs`、`block-mount`、`nfs-kernel-server` 及 utils；
-- 诊断：`kmod-netlink-diag`、`kmod-inet-diag`。
+| 文件 | 内容 | 类型 |
+| --- | --- | --- |
+| `00-apps.config` | `tempinfo`、`camlive`、`go2rtc`、`gensio(+bin)`、`ser2net` 及对应 3 个 `luci-app-*` | 纯用户态应用 |
+| `10-usb.config` | USB 主机/XHCI/存储(UAS/extras)/串口(CH341,CP210X,FTDI,PL2303)/ACM/HID/网卡(cdc-ether,cdc-ncm,rtl8152,ax88179) | kmod |
+| `20-camera-audio.config` | UVC 摄像头（video-core/videobuf2/uvc）+ input-core + sound-core + usb-audio + `alsa-utils`/`alsa-lib` | kmod + 用户态 |
+| `30-bluetooth.config` | `kmod-bluetooth/btusb/btbcm/btmtk/hci-uart`、`bluez-daemon/libs/utils`、`libdbus`、`dbus`、`glib2`、`sbc`、自建 `bluez-alsa`、`luci-app-blueaudio`、`luci-app-btsp` | kmod + 用户态 |
+| `40-wlan-usb.config` | `kmod-rtw88*`、`rtl8xxxu`、`rtl8192cu`、`linux-firmware-rtw88` | kmod |
+| `50-fs-share.config` | `kmod-fs-ext4/vfat/exfat/ntfs3/cifs`、`block-mount`、NFS 用户态（`nfs-kernel-server` 及 utils） | kmod + 用户态 |
+| `60-diagnostic.config` | `kmod-netlink-diag`、`kmod-inet-diag` | kmod |
 
 > 这些包名全部取自我们此前在 `ufo1cn/PonWrt-HG5382A` 上真实编过的清单，不是猜测名。
+> 想砍/加某一类（例如给 5382A 去掉 USB 类），只改对应模块文件即可，不必动工作流。
 
 ### 4. `configs/pon-userspace-packages.txt`（新增）
 
-增量编译清单，格式 `<构建路径>|<apk 名>|<required|optional>`，顺序即编译顺序；当前清单无 `optional` 项（`bluez-alsa` / `luci-app-blueaudio` 已移除）。
+增量编译清单，格式 `<构建路径>|<apk 名>|<required|optional>`，顺序即编译顺序；当前清单无 `optional` 项。
 
-### 5. `package/pon-userspace/**`（新增，31 个文件）
+### 5. `package/pon-userspace/**`（新增，38 个文件）
 
 从旧仓库 `pon_userspace/` 迁移并整理：
 
@@ -81,10 +83,14 @@ package/pon-userspace/
 ├── luci-app-camlive/         Makefile + root/（配置、init、controller、cbi、i18n）
 ├── luci-app-go2rtc/          Makefile + root/（controller、cbi、view）
 ├── luci-app-ser2net/         Makefile + luasrc/ + root/etc/config
+├── bluez-alsa/               Makefile（自建包：上游 arkq/bluez-alsa v4.3.1 源码构建）
+├── luci-app-blueaudio/       Makefile + root/（配置、init、controller、cbi、i18n）
 └── luci-app-btsp/            Makefile + root/
 ```
 
-> `luci-app-blueaudio` 未迁入：其硬依赖 `bluez-alsa` 只有第三方源码，按决定不引入。
+`bluez-alsa` 是本仓库**自己写的包定义**：`PKG_SOURCE_PROTO:=git` 指向上游 `https://github.com/arkq/bluez-alsa.git`，锁 `v4.3.1`，`PKG_FIXUP:=autoreconf`，只开 `--enable-aplay --enable-cli`，关掉 systemd/upower/man/test/a2dpconf/hcitop/rfcomm；产物 `bluealsa`、`bluealsa-aplay`、`bluealsa-cli` 与 ALSA 插件 `libasound_module_pcm_bluealsa.so`。不依赖任何第三方包仓库。
+
+`luci-app-blueaudio` 的 init 已改为匹配上游二进制：`bluealsa` 按 `a2dp-source + a2dp-sink`（HFP 模式再加 `hfp-ag/hfp-hf/hsp-ag/hsp-hs`）启动，`bluealsa-aplay` 用 `-D <output> --profile-a2dp`（HFP 时再加 `--profile-sco`）把声音转到本机 PCM，`output` 可在 LuCI 里填 `default` / `hw:1,0`。
 
 与原仓库的差异：旧仓库把这三个 ser2net 相关包放在 `pon_userspace/ser2net4/` 子目录、由工作流拆开部署；这里按 OpenWrt 多包目录规范拆平到 `package/pon-userspace/`，`make` 能直接按 `package/pon-userspace/<pkg>/compile` 增量编译。
 
@@ -113,7 +119,7 @@ package/pon-userspace/
 ```
 CONFIG_NFS_FS / NFS_V4 / NFSD / NFSD_V4 / LOCKD / SUNRPC / GRACE_PERIOD = y
     NFS server 全链内核内置（沿用此前“内置吧”的决定）。
-    因此 configs/pon-userspace.config 只选用户态 nfs-kernel-server，
+    因此 configs/pon-packages/50-fs-share.config 只选用户态 nfs-kernel-server，
     不去选 kmod-fs-nfs* —— 内置后再选 kmod 只会得到空壳 apk。
 CONFIG_CRYPTO_MD5 / SHA256 / AES = y      NFSD_V4 的加密依赖，显式内置避免被裁掉
 CONFIG_DEBUG_FS / DEVMEM = y             tailscale/zerotier/honk/diskman 依赖
@@ -146,6 +152,7 @@ CONFIG_NL80211_TESTMODE = y              cfg80211 在 CI 无 TTY 下 syncconfig 
 
 - `build_dir/target-*` / `staging_dir/target-*` 缓存体积可达数 GB，GitHub 单条缓存上限 10GB；保存步骤已设 `continue-on-error`，缓存超限不会让编译失败，只是下一轮退化为重新编译。
 - 三个工作流（两个新增 + 改造后的 `build-zn504.yml`）都只有 `workflow_dispatch`，不会因提交自动跑。
+- `bluez-alsa` 是自建包，尚未在 CI 实跑验证；若 configure 因 pkg-config 模块缺失失败，按报错补 `DEPENDS`（候选：`bluez.pc`←`bluez-libs`、`sbc.pc`←`sbc`、`dbus-1.pc`←`libdbus`/`dbus`、`glib-2.0.pc`/`gio-unix-2.0.pc`←`glib2`）。
 - NFS 内置后，`kmod-fs-nfs*` 若被依赖链选中会生成空壳 apk（预期行为，不影响运行）。
 
 ## 七、变更历史
@@ -155,3 +162,7 @@ CONFIG_NL80211_TESTMODE = y              cfg80211 在 CI 无 TTY 下 syncconfig 
    - 不引入第三方 `bluez-alsa`，移除 `luci-app-blueaudio`（包源码、选包、编译清单、customize.sh 注入全部删除）；
    - 上游 `build-zn504.yml` 删除 `push` 触发，改为只手动；
    - `build-firmware-manual.yml` 明确以 `build-zn504.yml` 为基线，保留其步骤骨架，仅改触发方式、配置合并、机型锁定与产物收集/校验。
+3. 三次修订（按用户要求）：
+   - **恢复蓝牙音频**，但不再用第三方仓库：自己写 `package/pon-userspace/bluez-alsa/Makefile`，从上游 `arkq/bluez-alsa` v4.3.1 源码构建；恢复 `luci-app-blueaudio`，init 改用上游 `bluealsa` + `bluealsa-aplay` 的 CLI；
+   - 选包配置由单个 `configs/pon-userspace.config` 拆成 `configs/pon-packages/` 下 7 个分类模块（应用 / USB / 摄像头音频 / 蓝牙 / 无线网卡 / 文件系统共享 / 诊断），工作流改为 `configs/pon-packages/*.config` 通配合并；
+   - 缓存 `hashFiles` 同步改为 `configs/**/*.config`，保证子目录里的模块改动也能命中新 key。

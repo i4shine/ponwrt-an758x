@@ -1,0 +1,44 @@
+#!/bin/sh /etc/rc.common
+USE_PROCD=1
+START=99
+STOP=01
+
+start_service() {
+	local profile output
+	config_load blueaudio
+	config_get profile main profile "a2dp"
+	config_get output main output "default"
+
+	# 1) bluealsa 守护进程：把蓝牙设备暴露成 ALSA PCM
+	procd_open_instance bluealsa
+	procd_set_param command /usr/bin/bluealsa -p a2dp-source -p a2dp-sink
+	if [ "$profile" = "hfp" ]; then
+		procd_append_param command -p hfp-ag -p hfp-hf -p hsp-ag -p hsp-hs
+	fi
+	procd_set_param respawn
+	procd_set_param stdout 1
+	procd_set_param stderr 1
+	procd_close_instance
+
+	# 2) bluealsa-aplay：把手机的 A2DP 音频转发到本机声卡（output 可指定 hw:1,0）
+	procd_open_instance aplay-a2dp
+	procd_set_param command /usr/bin/bluealsa-aplay -D "$output" --profile-a2dp 00:00:00:00:00:00
+	procd_set_param respawn
+	procd_set_param stdout 1
+	procd_set_param stderr 1
+	procd_close_instance
+
+	# 3) HFP/HSP 走 SCO 链路，单独再起一个 aplay 实例
+	if [ "$profile" = "hfp" ]; then
+		procd_open_instance aplay-sco
+		procd_set_param command /usr/bin/bluealsa-aplay -D "$output" --profile-sco 00:00:00:00:00:00
+		procd_set_param respawn
+		procd_set_param stdout 1
+		procd_set_param stderr 1
+		procd_close_instance
+	fi
+}
+
+service_triggers() {
+	procd_add_reload_trigger "blueaudio"
+}

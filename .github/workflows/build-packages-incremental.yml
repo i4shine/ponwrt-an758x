@@ -5,7 +5,7 @@ name: Build Packages (same kernel tree, incremental) manual
 #
 # 设计要点
 # 1) 与固件同源同 ABI：本工作流用 configs/an7581.config + release.config +
-#    pon-userspace.config 生成与固件完全一致的 .config，先编 host 工具链、
+#    pon-packages/*.config 生成与固件完全一致的 .config，先编 host 工具链、
 #    再编 target/linux（内核树），最后才编 kmod 与上层包。kmod 的 vermagic
 #    因此和 build-firmware-manual.yml 出来的固件逐字节一致，apk 可直接装。
 # 2) 增量：dl / .ccache / build_dir / staging_dir 全部走滚动缓存（key 带 run_id，
@@ -103,9 +103,9 @@ jobs:
             build_dir/host
             staging_dir/target-*
             staging_dir/host
-          key: ponwrt-tree-${{ inputs.device }}-${{ hashFiles('configs/*.config', 'target/linux/airoha/an7581/config-6.18', 'feeds.conf.default') }}-${{ github.run_id }}
+          key: ponwrt-tree-${{ inputs.device }}-${{ hashFiles('configs/**/*.config', 'target/linux/airoha/an7581/config-6.18', 'feeds.conf.default') }}-${{ github.run_id }}
           restore-keys: |
-            ponwrt-tree-${{ inputs.device }}-${{ hashFiles('configs/*.config', 'target/linux/airoha/an7581/config-6.18', 'feeds.conf.default') }}-
+            ponwrt-tree-${{ inputs.device }}-${{ hashFiles('configs/**/*.config', 'target/linux/airoha/an7581/config-6.18', 'feeds.conf.default') }}-
             ponwrt-tree-${{ inputs.device }}-
 
       - name: Restore downloads cache
@@ -113,9 +113,9 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: dl
-          key: ponwrt-dl-pkg-${{ hashFiles('feeds.conf.default', 'configs/*.config') }}-${{ github.run_id }}
+          key: ponwrt-dl-pkg-${{ hashFiles('feeds.conf.default', 'configs/**/*.config') }}-${{ github.run_id }}
           restore-keys: |
-            ponwrt-dl-pkg-${{ hashFiles('feeds.conf.default', 'configs/*.config') }}-
+            ponwrt-dl-pkg-${{ hashFiles('feeds.conf.default', 'configs/**/*.config') }}-
             ponwrt-dl-pkg-
 
       - name: Restore compiler ccache
@@ -145,7 +145,7 @@ jobs:
           ./scripts/kconfig.pl + \
             configs/an7581.config \
             configs/release.config \
-            configs/pon-userspace.config > .config
+            configs/pon-packages/*.config > .config
 
           sed -i '/^CONFIG_KERNEL_DEBUG_INFO_REDUCED=/d' .config
           printf 'CONFIG_KERNEL_DEBUG_INFO=y\n# CONFIG_KERNEL_DEBUG_INFO_REDUCED is not set\nCONFIG_KERNEL_DEBUG_INFO_BTF=y\nCONFIG_KERNEL_DEBUG_INFO_BTF_MODULES=y\nCONFIG_KERNEL_MODULE_ALLOW_BTF_MISMATCH=y\nCONFIG_KERNEL_KPROBES=y\nCONFIG_KERNEL_BPF_EVENTS=y\n' >> .config
@@ -252,7 +252,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: dl
-          key: ponwrt-dl-pkg-${{ hashFiles('feeds.conf.default', 'configs/*.config') }}-${{ github.run_id }}
+          key: ponwrt-dl-pkg-${{ hashFiles('feeds.conf.default', 'configs/**/*.config') }}-${{ github.run_id }}
 
       - name: Save compiler ccache
         if: always() && inputs.cache_mode != '完全重建'
@@ -272,7 +272,7 @@ jobs:
             build_dir/host
             staging_dir/target-*
             staging_dir/host
-          key: ponwrt-tree-${{ inputs.device }}-${{ hashFiles('configs/*.config', 'target/linux/airoha/an7581/config-6.18', 'feeds.conf.default') }}-${{ github.run_id }}
+          key: ponwrt-tree-${{ inputs.device }}-${{ hashFiles('configs/**/*.config', 'target/linux/airoha/an7581/config-6.18', 'feeds.conf.default') }}-${{ github.run_id }}
 
       - name: Upload packages artifact
         if: always()

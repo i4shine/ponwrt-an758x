@@ -1,0 +1,3 @@
+config main
+    option profile 'a2dp'
+    option output 'default'
