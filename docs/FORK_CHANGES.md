@@ -99,10 +99,13 @@ package/pon-userspace/
 | 文件 | 来源 | 用途 |
 | --- | --- | --- |
 | `patches/feeds/pon_userspace/0001-gpon-luci.patch` | 旧仓库同名 | GPON 状态页 LuCI 集成，`customize.sh` 打进 `feeds/pon_userspace` |
+| `patches/feeds/pon_userspace/0002-add-luci-app-blueaudio.patch.bak` | 旧仓库同名 | **历史备份，原样保留**（`.bak` 扩展名不会被 `customize.sh` 的 `*.patch` 循环应用） |
+| `patches/feeds/pon_userspace/0003-add-luci-app-btsp.patch.bak` | 旧仓库同名 | 同上 |
+| `patches/feeds/pon_userspace/0004-add-luci-app-camlive.patch.bak` | 旧仓库同名 | 同上 |
 | `patches/feeds/pon_drivers/0001-gpon-full.patch` | 旧仓库同名 | GPON 驱动补丁 |
 | `patches/feeds/pon_drivers/rtl8723bu/Makefile` | 旧仓库同名 | 给 pon_drivers feed 增加 rtl8723bu 无线包定义 |
 
-旧仓库里的 `0002/0003/0004-add-luci-app-*.patch.bak` 是当年把 LuCI 前端塞进 `pon_userspace` feed 的备份方案；现在前端已作为独立包放在 `package/pon-userspace/`，这些 `.bak` 不再需要，**未迁入**。
+旧仓库里的 `0002/0003/0004-add-luci-app-*.patch.bak` 是当年把 LuCI 前端塞进 `pon_userspace` feed 的备份方案；现在前端已作为独立包放在 `package/pon-userspace/`，这些 `.bak` **已一并迁回保留**（仅是历史备份，`.bak` 后缀不会被自动应用，也不会和独立包重复）。
 
 ---
 
@@ -166,3 +169,4 @@ CONFIG_NL80211_TESTMODE = y              cfg80211 在 CI 无 TTY 下 syncconfig 
    - **恢复蓝牙音频**，但不再用第三方仓库：自己写 `package/pon-userspace/bluez-alsa/Makefile`，从上游 `arkq/bluez-alsa` v4.3.1 源码构建；恢复 `luci-app-blueaudio`，init 改用上游 `bluealsa` + `bluealsa-aplay` 的 CLI；
    - 选包配置由单个 `configs/pon-userspace.config` 拆成 `configs/pon-packages/` 下 7 个分类模块（应用 / USB / 摄像头音频 / 蓝牙 / 无线网卡 / 文件系统共享 / 诊断），工作流改为 `configs/pon-packages/*.config` 通配合并；
    - 缓存 `hashFiles` 同步改为 `configs/**/*.config`，保证子目录里的模块改动也能命中新 key。
+4. 四次修订：把旧仓库里 `0002/0003/0004-add-luci-app-*.patch.bak` 三份历史备份原样迁回 `patches/feeds/pon_userspace/`（`.bak` 不参与自动打补丁，仅保留源码历史）。
