@@ -556,6 +556,10 @@ case "$1" in
         install_honk
         exit $?
         ;;
+    apply-rps|rps)
+        apply_rps_tuning "d"
+        exit 0
+        ;;
 esac
 
 # 交互式主菜单界面 (Interactive TUI Menu)
