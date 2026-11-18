@@ -11,7 +11,7 @@
 
 | 目标 | 落点 |
 | --- | --- |
-| 支持我们前面编译的上层应用 | `configs/pon-packages/*.config`（按类别拆分的 7 个选包模块）+ `target/linux/airoha/an7581/config-6.18`（内核内置项） |
+| 支持我们前面编译的上层应用 | `target/linux/airoha/an7581/config-6.18`（内核基础设施内置）+ `configs/pon-packages/*.config`（7 个分类模块，**只给包工作流**用） |
 | 增加 HG5382A 固件支持 | 新增 `build-firmware-manual.yml` 的机型锁定与产物收集（上游机型定义与 `CONFIG_TARGET_DEVICE_...hg5382a=y` 本来就有，缺口是产物被 `find` 名字过滤静默丢弃） |
 | 为固件编译软件包 | 新增 `build-packages-incremental.yml` |
 | 增量编译 | 该工作流的滚动缓存（dl / ccache / build_dir / staging_dir）+ `only` 只编指定包 |
@@ -27,10 +27,11 @@
 - **基线**：直接沿用上游 `build-zn504.yml` 的全部骨架 —— 依赖安装列表、`dl` 缓存 key、`customize.sh`、`make download`、编译命令、ccache 存取、产物 sha256、Artifact 上传、Release 发布。
 - **触发**：删除 `push` 自动触发，只保留 `workflow_dispatch`（手动运行）；新增 `devices` 输入。
 - **相对上游的四处改动**：
-  1. 配置追加 `configs/pon-packages/*.config`（按类别拆分的选包模块，上游只合 `an7581.config` + `release.config`）；
+  1. 固件配置**保持上游原样**（只合 `an7581.config` + `release.config`），不选装自有包；
   2. `make defconfig` 之后做机型锁定（先删掉全部 `CONFIG_TARGET_DEVICE_airoha_an7581_DEVICE_*`，再写入本次目标），之后**不再** `defconfig`（避免机型行被重算掉）；其它机型关闭后不再重复建 rootfs；
   3. 产物收集的 `find` 加入 `*hg5382a*`（上游只匹配 `zn504*` / `hg5585f-ct*` / `hg5585f-cu*`，HG5382A 会被静默丢弃）；
   4. 新增「Verify requested firmware exists」步骤，缺目标 `.itb` 直接失败。
+- **不做的事**：不合并 `configs/pon-packages/*.config`，不编自有应用与 kmod —— 这些只由包工作流产出，固件保持"内核能力齐全、体积干净"。
 - **输入**：`devices`（both / hg5585f-ct / hg5382a）、`cache_mode`、`upload_release`。
 
 ### 2. `.github/workflows/build-packages-incremental.yml`（新增，仅手动）
@@ -50,7 +51,7 @@
 
 ### 3. `configs/pon-packages/*.config`（新增，7 个分类模块）
 
-原来一个 `pon-userspace.config` 里混装了「上层应用」和「kmod」，现在按类别拆成独立模块，工作流用 glob 一次性合并（`kconfig.pl + configs/an7581.config configs/release.config configs/pon-packages/*.config`）。合并顺序由文件名前缀决定，后面的可覆盖前面的。
+原来一个 `pon-userspace.config` 里混装了「上层应用」和「kmod」，现在按类别拆成独立模块。**这些文件只由 `build-packages-incremental.yml` 合并**（`kconfig.pl + configs/an7581.config configs/release.config configs/pon-packages/*.config`），固件工作流不再引用——固件因此不带自有包，但内核能力由 `config-6.18` 与同树 kmod 包提供。合并顺序由文件名前缀决定，后面的可覆盖前面的。
 
 | 文件 | 内容 | 类型 |
 | --- | --- | --- |
@@ -59,7 +60,7 @@
 | `20-camera-audio.config` | UVC 摄像头（video-core/videobuf2/uvc）+ input-core + sound-core + usb-audio + `alsa-utils`/`alsa-lib` | kmod + 用户态 |
 | `30-bluetooth.config` | `kmod-bluetooth/btusb/btbcm/btmtk/hci-uart`、`bluez-daemon/libs/utils`、`libdbus`、`dbus`、`glib2`、`sbc`、自建 `bluez-alsa`、`luci-app-blueaudio`、`luci-app-btsp` | kmod + 用户态 |
 | `40-wlan-usb.config` | `kmod-rtw88*`、`rtl8xxxu`、`rtl8192cu`、`linux-firmware-rtw88` | kmod |
-| `50-fs-share.config` | `kmod-fs-ext4/vfat/exfat/ntfs3/cifs`、`block-mount`、NFS 用户态（`nfs-kernel-server` 及 utils） | kmod + 用户态 |
+| `50-fs-share.config` | `kmod-fs-ext4/vfat/exfat/ntfs3/cifs`、`kmod-fs-nfs(-common/-v4/-nfsd)`、`block-mount`、NFS 用户态（`nfs-kernel-server` 及 utils） | kmod + 用户态 |
 | `60-diagnostic.config` | `kmod-netlink-diag`、`kmod-inet-diag` | kmod |
 
 > 这些包名全部取自我们此前在 `ufo1cn/PonWrt-HG5382A` 上真实编过的清单，不是猜测名。
@@ -113,24 +114,24 @@ package/pon-userspace/
 
 | 文件 | 改动 | 目的 |
 | --- | --- | --- |
-| `target/linux/airoha/an7581/config-6.18` | 末尾追加 18 行内核符号 | 见下 |
+| `target/linux/airoha/an7581/config-6.18` | 末尾追加 5 行内核符号 | 见下 |
 | `scripts/customize.sh` | 新增第 8 节 | 应用 `patches/feeds/**`（feed 补丁 + rtl8723bu 包定义）；**不**再拉第三方 bluez-alsa |
 | `.github/workflows/build-zn504.yml` | 删除 `push` 触发块 | 上游原工作流改为只手动运行，防止提交即自动重编 |
 
-`config-6.18` 追加内容与理由：
+`config-6.18` 追加内容与理由（**方案 A：基础设施内置，功能驱动保持模块化**）：
 
 ```
-CONFIG_NFS_FS / NFS_V4 / NFSD / NFSD_V4 / LOCKD / SUNRPC / GRACE_PERIOD = y
-    NFS server 全链内核内置（沿用此前“内置吧”的决定）。
-    因此 configs/pon-packages/50-fs-share.config 只选用户态 nfs-kernel-server，
-    不去选 kmod-fs-nfs* —— 内置后再选 kmod 只会得到空壳 apk。
-CONFIG_CRYPTO_MD5 / SHA256 / AES = y      NFSD_V4 的加密依赖，显式内置避免被裁掉
-CONFIG_DEBUG_FS / DEVMEM = y             tailscale/zerotier/honk/diskman 依赖
-CONFIG_NETLINK_DIAG / INET_DIAG = y      ss/netlink 诊断（zerotier、tproxy 排查）
+CONFIG_DEBUG_FS / DEVMEM = y             tailscale/zerotier/honk/diskman 等应用依赖的调试接口
 CONFIG_NL80211_TESTMODE = y              cfg80211 在 CI 无 TTY 下 syncconfig 会卡死，必须显式定值
 ```
 
-> UVC / 蓝牙 / USB 串口 / rtw88 等驱动**没有**写进 `config-6.18`：它们由对应 kmod 包的 `KCONFIG` 在配置阶段置为 `=m`，这样既能进固件，也能在增量工作流里单独重编，改名/升级不用动内核碎片。
+三条硬规则：
+
+1. **凡是有对应 kmod 包的能力，一律不写进 `config-6.18`**。写 `=y` 之后，`kmod-*` 包编出来就只剩空壳（936 B 那种），"后期装 apk 加功能"的路就断了。NFS / CIFS / USB 存储与串口 / 蓝牙 / UVC / rtw88 / netlink-diag / inet-diag 全部走 kmod（`=m`），由 `build-packages-incremental.yml` 用**同一内核树**编成 apk。
+2. **固件构建不再 merge `configs/pon-packages/*.config`**，只合 `an7581.config + release.config`。所以固件不带我们的自有包，但内核里该有的基础设施符号都在，apk 装上即用。
+3. **kmod 必须与固件同源**：包工作流在 `Configure` 之后多了一步 `Record kernel ABI pin`，输出 `output/build-info.txt`（`repo_commit` + `config_6_18_sha256` + `feeds_conf_sha256`），装 kmod 前对照固件构建的同一份值即可判定 ABI 是否匹配。
+
+> 如果某个功能后来确定"再也不会单独升级"，才把它从 kmod 侧挪到 `config-6.18` 写成 `=y` —— 这时要同步把 `configs/pon-packages/` 里对应的 `kmod-*` 行删掉，否则会同时产出空壳 apk。
 
 ---
 
@@ -156,7 +157,7 @@ CONFIG_NL80211_TESTMODE = y              cfg80211 在 CI 无 TTY 下 syncconfig 
 - `build_dir/target-*` / `staging_dir/target-*` 缓存体积可达数 GB，GitHub 单条缓存上限 10GB；保存步骤已设 `continue-on-error`，缓存超限不会让编译失败，只是下一轮退化为重新编译。
 - 三个工作流（两个新增 + 改造后的 `build-zn504.yml`）都只有 `workflow_dispatch`，不会因提交自动跑。
 - `bluez-alsa` 是自建包，尚未在 CI 实跑验证；若 configure 因 pkg-config 模块缺失失败，按报错补 `DEPENDS`（候选：`bluez.pc`←`bluez-libs`、`sbc.pc`←`sbc`、`dbus-1.pc`←`libdbus`/`dbus`、`glib-2.0.pc`/`gio-unix-2.0.pc`←`glib2`）。
-- NFS 内置后，`kmod-fs-nfs*` 若被依赖链选中会生成空壳 apk（预期行为，不影响运行）。
+- NFS 已改回 kmod（方案 A），不再有内置导致的空壳 apk 问题；反过来，若以后把某项写进 `config-6.18` 的 `=y`，必须同时删掉 `configs/pon-packages/` 里对应的 `kmod-*` 行。
 
 ## 七、变更历史
 
@@ -169,4 +170,9 @@ CONFIG_NL80211_TESTMODE = y              cfg80211 在 CI 无 TTY 下 syncconfig 
    - **恢复蓝牙音频**，但不再用第三方仓库：自己写 `package/pon-userspace/bluez-alsa/Makefile`，从上游 `arkq/bluez-alsa` v4.3.1 源码构建；恢复 `luci-app-blueaudio`，init 改用上游 `bluealsa` + `bluealsa-aplay` 的 CLI；
    - 选包配置由单个 `configs/pon-userspace.config` 拆成 `configs/pon-packages/` 下 7 个分类模块（应用 / USB / 摄像头音频 / 蓝牙 / 无线网卡 / 文件系统共享 / 诊断），工作流改为 `configs/pon-packages/*.config` 通配合并；
    - 缓存 `hashFiles` 同步改为 `configs/**/*.config`，保证子目录里的模块改动也能命中新 key。
+5. 五次修订（方案 A：基础设施内置、功能驱动模块化）：
+   - `config-6.18` 只留 `CONFIG_DEBUG_FS/DEVMEM/NL80211_TESTMODE`，删掉 NFS 全链与 `CRYPTO_*`、`NETLINK_DIAG/INET_DIAG`（改回 kmod）；
+   - `build-firmware-manual.yml` 不再合并 `configs/pon-packages/*.config`，缓存 key 回到 `configs/*.config`；
+   - `build-packages-incremental.yml` 新增 `Record kernel ABI pin` 步骤，输出 `build-info.txt`（commit + config-6.18 sha256）；
+   - `50-fs-share.config` 恢复 `kmod-fs-nfs(-common/-v4/-nfsd)`，NFS 由 apk 按需安装。
 4. 四次修订：把旧仓库里 `0002/0003/0004-add-luci-app-*.patch.bak` 三份历史备份原样迁回 `patches/feeds/pon_userspace/`（`.bak` 不参与自动打补丁，仅保留源码历史）。

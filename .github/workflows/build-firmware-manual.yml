@@ -6,8 +6,9 @@ name: Build PonWrt (HG5585F-CT & HG5382A) manual
 #
 #   1) 触发方式：删除 push 自动触发，只保留 workflow_dispatch（手动运行），
 #      新增 devices 输入用于选择机型；
-#   2) 配置：在 an7581.config + release.config 之外，追加本仓库的
-#      configs/pon-packages/*.config（按类别拆分的选包模块）；
+#   2) 配置：只合并上游 configs/an7581.config + configs/release.config。
+#      configs/pon-packages/*.config 仅供 build-packages-incremental.yml 使用，
+#      固件不再选装自有包（内核能力由 config-6.18 的内置符号提供）；
 #   3) 机型：defconfig 之后锁定 HG5585F-CT / HG5382A，其它机型关闭
 #      （defconfig 会重算设备列表，因此机型锁定必须放在 defconfig 之后，且之后
 #       不再执行 defconfig）；
@@ -90,7 +91,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: dl
-          key: ponwrt-dl-zn504-${{ hashFiles('feeds.conf.default', 'configs/**/*.config') }}
+          key: ponwrt-dl-zn504-${{ hashFiles('feeds.conf.default', 'configs/*.config') }}
           restore-keys: |
             ponwrt-dl-zn504-
 
@@ -108,9 +109,9 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: .ccache
-          key: ponwrt-ccache-zn504-${{ hashFiles('configs/**/*.config') }}-${{ github.sha }}
+          key: ponwrt-ccache-zn504-${{ hashFiles('configs/*.config') }}-${{ github.sha }}
           restore-keys: |
-            ponwrt-ccache-zn504-${{ hashFiles('configs/**/*.config') }}-
+            ponwrt-ccache-zn504-${{ hashFiles('configs/*.config') }}-
             ponwrt-ccache-zn504-
 
       - name: Configure for the requested device(s)
@@ -118,8 +119,7 @@ jobs:
           # 上游两份配置 + 本仓库上层应用清单
           ./scripts/kconfig.pl + \
             configs/an7581.config \
-            configs/release.config \
-            configs/pon-packages/*.config > .config
+            configs/release.config > .config
 
           sed -i '/^CONFIG_KERNEL_DEBUG_INFO_REDUCED=/d' .config
           printf 'CONFIG_KERNEL_DEBUG_INFO=y\n# CONFIG_KERNEL_DEBUG_INFO_REDUCED is not set\nCONFIG_KERNEL_DEBUG_INFO_BTF=y\nCONFIG_KERNEL_DEBUG_INFO_BTF_MODULES=y\nCONFIG_KERNEL_MODULE_ALLOW_BTF_MISMATCH=y\nCONFIG_KERNEL_KPROBES=y\nCONFIG_KERNEL_BPF_EVENTS=y\n' >> .config
@@ -167,7 +167,7 @@ jobs:
         uses: actions/cache/save@v4
         with:
           path: .ccache
-          key: ponwrt-ccache-zn504-${{ hashFiles('configs/**/*.config') }}-${{ github.sha }}
+          key: ponwrt-ccache-zn504-${{ hashFiles('configs/*.config') }}-${{ github.sha }}
 
       - name: Show compiler cache statistics
         if: always() && inputs.cache_mode != '不使用缓存'
@@ -226,7 +226,8 @@ jobs:
             ## 本次手动构建
 
             - 机型：${{ inputs.devices }}（HG5585F-CT / HG5382A）
-            - 配置来源：`configs/an7581.config` + `configs/release.config` + `configs/pon-packages/*.config`
+            - 配置来源：`configs/an7581.config` + `configs/release.config`（不含自有包选装）
+            - 内核能力来源：`target/linux/airoha/an7581/config-6.18` 的基础设施符号
             - 工作流基线：上游 `build-zn504.yml`（仅改触发方式、机型锁定与产物收集）
             - 内核与 kmod 同源树编译，ABI 与 `build-packages-incremental.yml` 的 apk 一致
           files: output/*

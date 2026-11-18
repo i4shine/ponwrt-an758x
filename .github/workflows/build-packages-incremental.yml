@@ -169,6 +169,18 @@ jobs:
           grep -q "^CONFIG_TARGET_DEVICE_airoha_an7581_DEVICE_${DEVICE}=y" .config \
             || { echo "::error::机型符号未落地: $DEVICE"; exit 1; }
 
+      - name: Record kernel ABI pin (kmod 必须与固件同树同配置)
+        run: |
+          set -euo pipefail
+          mkdir -p output
+          {
+            echo "device=${{ inputs.device }}"
+            echo "repo_commit=$(git rev-parse HEAD)"
+            echo "config_6_18_sha256=$(sha256sum target/linux/airoha/an7581/config-6.18 | awk '{print $1}')"
+            echo "feeds_conf_sha256=$(sha256sum feeds.conf.default | awk '{print $1}')"
+            echo "note=安装 kmod apk 前必须确认固件来自同一 commit 且 config-6.18 未变"
+          } | tee output/build-info.txt
+
       - name: Build host tools and toolchain
         run: |
           set -euo pipefail
