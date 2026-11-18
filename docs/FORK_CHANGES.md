@@ -22,16 +22,15 @@
 
 ## 二、新增文件
 
-### 1. `.github/workflows/build-firmware-manual.yml`（新增，仅手动）
+### 1. `.github/workflows/build-firmware-manual.yml`（新增，由上游 `build-zn504.yml` 改写）
 
-- **触发**：只有 `workflow_dispatch`，无 `push`/`schedule`。
-- **目的**：用本仓库的配置编出 HG5585F-CT 与 HG5382A 固件，并把 HG5382A 的产物真正收上来。
-- **关键改动（相对上游 `build-zn504.yml`）**：
-  1. 三份配置合并：`configs/an7581.config` + `configs/release.config` + `configs/pon-userspace.config`；
-  2. `make defconfig` 之后做机型锁定（先删掉全部 `CONFIG_TARGET_DEVICE_airoha_an7581_DEVICE_*`，再写入本次目标），之后**不再** `defconfig`（避免机型行被重算掉）；
-  3. 其它 7 个机型全部关闭，`TARGET_MULTI_PROFILE` 不再重复建 rootfs，编译时间明显下降；
-  4. 产物收集加入 `*hg5382a*sysupgrade.itb`（上游只匹配 `zn504*` / `hg5585f-ct*` / `hg5585f-cu*`，HG5382A 会被静默丢弃）；
-  5. 产物做存在性硬校验，缺 `.itb` 直接失败，不静默通过。
+- **基线**：直接沿用上游 `build-zn504.yml` 的全部骨架 —— 依赖安装列表、`dl` 缓存 key、`customize.sh`、`make download`、编译命令、ccache 存取、产物 sha256、Artifact 上传、Release 发布。
+- **触发**：删除 `push` 自动触发，只保留 `workflow_dispatch`（手动运行）；新增 `devices` 输入。
+- **相对上游的四处改动**：
+  1. 配置追加 `configs/pon-userspace.config`（上游只合 `an7581.config` + `release.config`）；
+  2. `make defconfig` 之后做机型锁定（先删掉全部 `CONFIG_TARGET_DEVICE_airoha_an7581_DEVICE_*`，再写入本次目标），之后**不再** `defconfig`（避免机型行被重算掉）；其它机型关闭后不再重复建 rootfs；
+  3. 产物收集的 `find` 加入 `*hg5382a*`（上游只匹配 `zn504*` / `hg5585f-ct*` / `hg5585f-cu*`，HG5382A 会被静默丢弃）；
+  4. 新增「Verify requested firmware exists」步骤，缺目标 `.itb` 直接失败。
 - **输入**：`devices`（both / hg5585f-ct / hg5382a）、`cache_mode`、`upload_release`。
 
 ### 2. `.github/workflows/build-packages-incremental.yml`（新增，仅手动）
@@ -53,8 +52,8 @@
 
 固件/包的选包清单，按用途分段：
 
-- 自有应用：`tempinfo`、`camlive`、`go2rtc`、`gensio`、`ser2net` 及 5 个 `luci-app-*`；
-- 蓝牙前端依赖：`bluez-daemon`、`bluez-libs`、`bluez-alsa`、`dbus`；
+- 自有应用：`tempinfo`、`camlive`、`go2rtc`、`gensio`、`ser2net` 及 4 个 `luci-app-*`（camlive / go2rtc / ser2net / btsp）；
+- 蓝牙串口前端依赖：`bluez-daemon`、`bluez-libs`、`dbus`（**不引 `bluez-alsa`**：它只在第三方仓库 `raphikWasHere/bluealsa4openwrt` 里有源码，按你的决定不引入，`luci-app-blueaudio` 因此也不参与编译）；
 - USB 主机/存储/串口：`kmod-usb-core`、`kmod-usb3`、`kmod-usb-xhci-hcd/-mtk`、`kmod-usb-storage(-uas/-extras)`、`kmod-usb-serial(-ch341/-cp210x/-ftdi/-pl2303)`、`kmod-usb-acm`、`kmod-usb-hid`、`kmod-usb-net(-cdc-ether/-cdc-ncm/-rtl8152/-asix-ax88179)`；
 - 摄像头/音频：`kmod-video-core`、`kmod-video-videobuf2`、`kmod-video-uvc`、`audio-support`、`kmod-input-core`、`kmod-sound-core`、`kmod-usb-audio`、`alsa-utils`；
 - 蓝牙：`kmod-bluetooth`、`kmod-btusb`、`kmod-btbcm`、`kmod-btmtk`、`kmod-hci-uart`；
@@ -66,9 +65,9 @@
 
 ### 4. `configs/pon-userspace-packages.txt`（新增）
 
-增量编译清单，格式 `<构建路径>|<apk 名>|<required|optional>`，顺序即编译顺序；`optional` 仅用于需要外部注入的 `bluez-alsa`。
+增量编译清单，格式 `<构建路径>|<apk 名>|<required|optional>`，顺序即编译顺序；当前清单无 `optional` 项（`bluez-alsa` / `luci-app-blueaudio` 已移除）。
 
-### 5. `package/pon-userspace/**`（新增，37 个文件）
+### 5. `package/pon-userspace/**`（新增，31 个文件）
 
 从旧仓库 `pon_userspace/` 迁移并整理：
 
@@ -82,9 +81,10 @@ package/pon-userspace/
 ├── luci-app-camlive/         Makefile + root/（配置、init、controller、cbi、i18n）
 ├── luci-app-go2rtc/          Makefile + root/（controller、cbi、view）
 ├── luci-app-ser2net/         Makefile + luasrc/ + root/etc/config
-├── luci-app-blueaudio/       Makefile + root/（配置、init、controller、cbi、i18n）
 └── luci-app-btsp/            Makefile + root/
 ```
+
+> `luci-app-blueaudio` 未迁入：其硬依赖 `bluez-alsa` 只有第三方源码，按决定不引入。
 
 与原仓库的差异：旧仓库把这三个 ser2net 相关包放在 `pon_userspace/ser2net4/` 子目录、由工作流拆开部署；这里按 OpenWrt 多包目录规范拆平到 `package/pon-userspace/`，`make` 能直接按 `package/pon-userspace/<pkg>/compile` 增量编译。
 
@@ -105,7 +105,8 @@ package/pon-userspace/
 | 文件 | 改动 | 目的 |
 | --- | --- | --- |
 | `target/linux/airoha/an7581/config-6.18` | 末尾追加 18 行内核符号 | 见下 |
-| `scripts/customize.sh` | 新增第 8 节 | 应用 `patches/feeds/**`；从 `raphikWasHere/bluealsa4openwrt` 注入 `package/pon-userspace/bluez-alsa`（`luci-app-blueaudio` 的硬依赖，标准 feeds 无此包） |
+| `scripts/customize.sh` | 新增第 8 节 | 应用 `patches/feeds/**`（feed 补丁 + rtl8723bu 包定义）；**不**再拉第三方 bluez-alsa |
+| `.github/workflows/build-zn504.yml` | 删除 `push` 触发块 | 上游原工作流改为只手动运行，防止提交即自动重编 |
 
 `config-6.18` 追加内容与理由：
 
@@ -128,7 +129,6 @@ CONFIG_NL80211_TESTMODE = y              cfg80211 在 CI 无 TTY 下 syncconfig 
 
 | 文件 | 为什么不动 |
 | --- | --- |
-| `.github/workflows/build-zn504.yml` | 上游原工作流保留原样（含 push 触发）。我们的新需求全部走两个手动工作流，避免自动触发。 |
 | `.github/workflows/release.yml` | 上游发布流程与本次目标无关。 |
 | `configs/an7581.config` | `CONFIG_TARGET_DEVICE_airoha_an7581_DEVICE_fiberhome_hg5382a=y` 与 `fiberhome_an4475-g2=y` 本来就已选中，机型定义在 `target/linux/airoha/image/an7581.mk` 里也完整；缺的只是**产物收集**，已在新增工作流里补上。 |
 | `target/linux/airoha/image/an7581.mk` | HG5382A 的 `Device/fiberhome_hg5382a` 与 `TARGET_DEVICES +=` 均存在，无需新增。 |
@@ -138,12 +138,20 @@ CONFIG_NL80211_TESTMODE = y              cfg80211 在 CI 无 TTY 下 syncconfig 
 
 ## 五、使用方式
 
-1. 固件：Actions → **Build Firmware (HG5585F-CT / HG5382A) manual** → Run workflow，`devices` 选 `both`（或单个），首次建议 `cache_mode=使用缓存`、`upload_release=false`。
+1. 固件：Actions → **Build PonWrt (HG5585F-CT & HG5382A) manual** → Run workflow，`devices` 选 `both`（或单个），首次建议 `cache_mode=使用缓存`、`upload_release=false`。
 2. 软件包：Actions → **Build Packages (same kernel tree, incremental) manual** → 选 `device`；首次或刚改过 `config-6.18` 时 `with_kernel=true`，之后可 `with_kernel=false` + `only=<apk 名>` 做单包增量。
-3. 两个工作流都不配置 push/schedule，只有手动点才会跑。
+3. 三个工作流（含改造后的上游 `Build PonWrt (ZN504XG-D & HG5585F)`）都只有 `workflow_dispatch`，不点就绝不会跑。
 
 ## 六、已知限制
 
 - `build_dir/target-*` / `staging_dir/target-*` 缓存体积可达数 GB，GitHub 单条缓存上限 10GB；保存步骤已设 `continue-on-error`，缓存超限不会让编译失败，只是下一轮退化为重新编译。
-- `bluez-alsa` 依赖第三方仓库 `raphikWasHere/bluealsa4openwrt`；拉取失败时该包记为 `SKIP`（optional），`luci-app-blueaudio` 会照实报 FAIL，不会伪造成功。
+- 三个工作流（两个新增 + 改造后的 `build-zn504.yml`）都只有 `workflow_dispatch`，不会因提交自动跑。
 - NFS 内置后，`kmod-fs-nfs*` 若被依赖链选中会生成空壳 apk（预期行为，不影响运行）。
+
+## 七、变更历史
+
+1. 首版：fork 后一次性引入两个新工作流、配置、包源码、补丁与内核配置项。
+2. 二次修订（按用户要求）：
+   - 不引入第三方 `bluez-alsa`，移除 `luci-app-blueaudio`（包源码、选包、编译清单、customize.sh 注入全部删除）；
+   - 上游 `build-zn504.yml` 删除 `push` 触发，改为只手动；
+   - `build-firmware-manual.yml` 明确以 `build-zn504.yml` 为基线，保留其步骤骨架，仅改触发方式、配置合并、机型锁定与产物收集/校验。

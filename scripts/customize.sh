@@ -113,9 +113,11 @@ if [ -L "./package/feeds/packages/squeezelite" ]; then
     rm -f "./package/feeds/packages/squeezelite"
 fi
 
-# 8. 集成 pon_userspace 相关补丁与 bluez-alsa（luci-app-blueaudio 的硬依赖）
-#    feed 侧补丁放在 patches/feeds/ 下，按目录对应贴回去；bluez-alsa 标准 feeds
-#    没有源码（immortalwrt/packages 与 openwrt/packages 均无），从 bluealsa4openwrt 取。
+# 8. 集成 pon_userspace 相关补丁
+#    feed 侧补丁放在 patches/feeds/ 下，按目录对应贴回去。
+#    注意：bluez-alsa 只在第三方仓库 bluealsa4openwrt 里有源码，本仓库不引入，
+#          因此 luci-app-blueaudio 也不参与编译；蓝牙侧只保留 luci-app-btsp，
+#          其依赖 ser2net + bluez-daemon 均来自标准 feeds。
 if [ -d "./feeds/pon_userspace" ]; then
     for p in "$TOP_DIR"/patches/feeds/pon_userspace/*.patch; do
         [ -f "$p" ] || continue
@@ -131,25 +133,6 @@ if [ -d "./feeds/pon_drivers" ] && [ -f "$TOP_DIR/patches/feeds/pon_drivers/rtl8
     mkdir -p ./feeds/pon_drivers/rtl8723bu
     cp -a "$TOP_DIR/patches/feeds/pon_drivers/rtl8723bu/." ./feeds/pon_drivers/rtl8723bu/
     ./scripts/feeds install -p pon_drivers -f || true
-fi
-
-if [ ! -f "./package/pon-userspace/bluez-alsa/Makefile" ]; then
-    echo "--> Fetching bluez-alsa (bluealsa4openwrt)..."
-    tmp_b4a="$(mktemp -d)"
-    if git clone --depth 1 https://github.com/raphikWasHere/bluealsa4openwrt.git "$tmp_b4a/b4a"; then
-        if [ -f "$tmp_b4a/b4a/bluez-alsa/Makefile" ] && grep -q 'PKG_NAME:=bluez-alsa' "$tmp_b4a/b4a/bluez-alsa/Makefile"; then
-            mkdir -p ./package/pon-userspace
-            cp -a "$tmp_b4a/b4a/bluez-alsa" ./package/pon-userspace/bluez-alsa
-            echo "[OK] bluez-alsa imported"
-        else
-            echo "[WARN] bluealsa4openwrt 中没有合法的 bluez-alsa 包定义，跳过"
-        fi
-    else
-        echo "[WARN] bluealsa4openwrt 拉取失败，luci-app-blueaudio 将缺少 bluez-alsa 依赖"
-    fi
-    rm -rf "$tmp_b4a"
-else
-    echo "[OK] bluez-alsa is present"
 fi
 
 echo "=== [PonWrt-ZN504] Build preparation complete ==="
