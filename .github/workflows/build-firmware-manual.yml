@@ -101,7 +101,7 @@ jobs:
           bash ./scripts/customize.sh
 
       - name: Restore compiler ccache
-        if: ${{ inputs.cache_mode }} != '完全重建'
+        if: inputs.cache_mode != '完全重建'
         uses: actions/cache/restore@v4
         with:
           path: .ccache
