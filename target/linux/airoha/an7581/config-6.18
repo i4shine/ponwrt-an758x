@@ -404,3 +404,14 @@ CONFIG_HZ_250=y
 CONFIG_PREEMPT=y
 CONFIG_PREEMPT_BUILD=y
 CONFIG_NET_SCH_FQ=y
+
+# ---- 本仓库追加（方案 A：基础设施内置、功能驱动保持模块化）----
+# 原则：这里只放「没有对应 kmod 包可选、或每台设备运行都必需」的基础设施符号。
+# 功能类内核能力（USB 存储/串口/网卡、NFS、CIFS、蓝牙、无线、视频、DIAG 等）
+# 一律保持模块化（=m），由 build-packages-incremental.yml 用同一内核树编成
+# kmod apk 后按需安装；若在此写成 =y，对应 kmod 包会退化成空壳 apk。
+# 调试接口（tailscale/zerotier/honk/diskman 等上层应用依赖）
+CONFIG_DEBUG_FS=y
+CONFIG_DEVMEM=y
+# cfg80211 在 CI 无 TTY 下 syncconfig 的已知死锁符号，显式定值
+CONFIG_NL80211_TESTMODE=y

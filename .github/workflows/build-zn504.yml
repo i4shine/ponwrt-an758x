@@ -17,16 +17,6 @@ on:
           - '使用缓存'
           - '重新编译'
           - '不使用缓存'
-  push:
-    branches:
-      - master
-    paths:
-      - 'configs/**'
-      - 'files/**'
-      - 'scripts/**'
-      - 'target/**'
-      - 'package/**'
-      - '.github/workflows/build-zn504.yml'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -133,7 +123,7 @@ jobs:
       - name: Organize output files
         run: |
           mkdir -p output
-          find bin/targets/airoha/an7581/ -type f \( -name "*zn504*" -o -name "*hg5585f-ct*" -o -name "*hg5585f-cu*" \) ! -name "*usb-sfp*" \( -name "*sysupgrade.itb" -o -name "*recovery.itb" -o -name "*manifest" \) -exec cp {} output/ \;
+          find bin/targets/airoha/an7581/ -type f \( -name "*zn504*" -o -name "*hg5585f-ct*" -o -name "*xg-040g-md*" \) ! -name "*usb-sfp*" \( -name "*sysupgrade.itb" -o -name "*recovery.itb" -o -name "*manifest" \) -exec cp {} output/ \;
           cd output
           for file in $(ls * 2>/dev/null); do
             [ -f "$file" ] && sha256sum "$file" > "${file}.sha256"

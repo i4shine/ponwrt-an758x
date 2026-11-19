@@ -78,4 +78,26 @@ if [ -L "./package/feeds/packages/squeezelite" ]; then
     rm -f "./package/feeds/packages/squeezelite"
 fi
 
+# 8. 集成 pon_userspace 相关补丁
+#    feed 侧补丁放在 patches/feeds/ 下，按目录对应贴回去。
+#    注意：bluez-alsa 只在第三方仓库 bluealsa4openwrt 里有源码，本仓库不引入，
+#          因此 luci-app-blueaudio 也不参与编译；蓝牙侧只保留 luci-app-btsp，
+#          其依赖 ser2net + bluez-daemon 均来自标准 feeds。
+if [ -d "./feeds/pon_userspace" ]; then
+    for p in "$TOP_DIR"/patches/feeds/pon_userspace/*.patch; do
+        [ -f "$p" ] || continue
+        echo "--> Applying $(basename "$p") to pon_userspace..."
+        ( cd feeds/pon_userspace && git apply --check "$p" 2>/dev/null && git apply "$p" ) \
+            || echo "[WARN] $(basename "$p") 未应用（可能已应用或上下文不匹配）"
+    done
+    ./scripts/feeds install -p pon_userspace -f || true
+fi
+
+if [ -d "./feeds/pon_drivers" ] && [ -f "$TOP_DIR/patches/feeds/pon_drivers/rtl8723bu/Makefile" ]; then
+    echo "--> Integrating rtl8723bu package into pon_drivers feed..."
+    mkdir -p ./feeds/pon_drivers/rtl8723bu
+    cp -a "$TOP_DIR/patches/feeds/pon_drivers/rtl8723bu/." ./feeds/pon_drivers/rtl8723bu/
+    ./scripts/feeds install -p pon_drivers -f || true
+fi
+
 echo "=== [PonWrt-ZN504] Build preparation complete ==="
