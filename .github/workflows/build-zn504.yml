@@ -17,16 +17,6 @@ on:
           - '使用缓存'
           - '重新编译'
           - '不使用缓存'
-  push:
-    branches:
-      - master
-    paths:
-      - 'configs/**'
-      - 'files/**'
-      - 'scripts/**'
-      - 'target/**'
-      - 'package/**'
-      - '.github/workflows/build-zn504.yml'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
