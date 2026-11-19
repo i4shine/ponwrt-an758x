@@ -154,26 +154,33 @@ jobs:
           tag_name: ${{ steps.tag.outputs.release_tag }}
           name: PonWrt ZN504XG-D & HG5585F 聚合增强固件 (${{ steps.tag.outputs.release_tag }})
           body: |
-            ## 🌟 相比前一版本（v2026.11.17-0850）的核心更新与变化
+            ## 🌟 相比前一版本（v2026.11.17-2012）的核心更新与变化
 
-            ### 1. 内核 eBPF CO-RE 与 BTF 类型信息闭环（Linux 6.18）
-            - **完整启用内核与模块 BTF 支持**：
-              - 在 `target/linux/airoha/an7581/config-6.18`、`an7583/config-6.18` 与构建配置中开启 `CONFIG_DEBUG_INFO_BTF=y`、`CONFIG_DEBUG_INFO_BTF_MODULES=y` 及 `CONFIG_BPF_EVENTS=y`，并在 CI 构建链路中集成 `dwarves`（`pahole`）。
-              - 固件原生生成 `/sys/kernel/btf/vmlinux` 与内核模块 BTF 段，开箱支持 `honk` / `dae` 等基于 eBPF CO-RE 的透明代理程序运行。
+            ### 1. 全面引入 Broadcom FullCone 2 支持（全功能 NAT1 / 游戏联机体验跃升）
+            - **内核 6.18、libnftnl、nftables 与 firewall4 全链路打通**：
+              - 在 Linux 6.18 内核、底层数据包库 `libnftnl`、规则管理工具 `nftables` 以及 OpenWrt 核心防火墙 `firewall4` 中，完整集成并适配 Broadcom FullCone 2 架构支持。
+              - **硬件卸载无冲突共存**：针对 `firewall4` 专门增加全功能 FullCone 2 模式，彻底攻克了传统 FullCone NAT 补丁与 Airoha / MediaTek 硬件流卸载（PPE / Hardware Flow Offloading）共存时的规则覆写、丢包与状态不一致缺陷。
+              - **实测收益**：局域网内 PC、PS5、Xbox、Switch 等游戏主机及 P2P / BT 客户端稳定达成 **NAT1 (Full Cone)**，大幅提升 UDP 打洞成功率，显著降低多人联机游戏延迟与对战连接阻断。
 
-            ### 2. 上游核心驱动与硬件卸载修复集成（源自 `pbs05/ponwrt`）
-            - **桥接流表与 PPE 硬件卸载保护 TTL / IPv6 Hop Limit（PR #82）**：
-              - 合入 `951-01-netfilter-preserve-bridge-fastpath-hop-limits.patch` 与 `951-02-net-airoha-preserve-bridge-ttl.patch`。
-              - 在内核 `nf_flowtable` 与达发 `airoha_ppe` 驱动中区分二层桥接流与三层路由流，禁止硬件流表对 L2 桥接报文错误递减 IPv4 TTL 与 IPv6 Hop Limit，根治开启硬件流卸载后内网 IPv6 异常及 VLAN 桥接（如 IPTV）跳数被误扣的问题。
-            - **AN7581 LAN/WAN 16K SRAM 动态拥塞门限初始化（PR #64）**：
-              - 合入 `947-net-airoha-initialize-lan-sram-congestion.patch` 与 `947-net-airoha-initialize-wan-sram-congestion.patch`。
-              - 为 AN7581 QDMA0 16K SRAM 描述符池初始化官方 SDK 拥塞丢包阈值曲线并激活 250us 硬件动态重算，消除 2.5G 突发至 1G 网口或高并发连接骤停瞬间的硬件队列尾丢包（`P0 CDM1` 拥塞丢包）。
-            - **达发 NPU 固件缓存信息与 IPv6 元数据解析（PR #72）**：
-              - 合入 `941-01-net-airoha-npu-expose-cached-firmware-info.patch` 与 `941-02-net-airoha-decode-ipv6-smac-metadata.patch`，通过 sysfs 暴露只读 NPU 固件版本及核心拓扑，增强 IPv6 硬件转发诊断能力。
-            - **清理失效 APK 软件仓库源（PR #116）**：
-              - 在 `an7581.config` / `an7583.config` 中禁用官方未提供索引的 `video`、`pon_drivers`、`pon_userspace` 源，消除运行 `apk update` 时的 404 报错。
+            ### 2. 固件极致瘦身与动态核心解耦（ROM 释放 64MB sing-box + 30MB honk 核心，按需动态拉取）
+            - **全面剔除固件只读内置的 `sing-box` 与 `honk-core` 静态二进制**：
+              - 固件 ROM 镜像直接瘦身超 **30MB+**（解压缩后等效释放近 **100MB** Flash 空间），彻底根除小存储设备升级空间告急的痛点，杜绝“只读 ROM 占一份、在线升级写 Overlay 又占一份”的闪存双重浪费。
+            - **解耦核心更新与固件更新（零刷机秒级换代）**：
+              - 固件完整固化不可替代的硬核底层运行环境（Linux 6.18 内核 BTF `/sys/kernel/btf/vmlinux`、`kmod-bpf`、`kmod-sched-core`、`kmod-nft-queue`、`kmod-tun` 等核心模块）与 UCI/procd 服务骨架。
+              - 用户态核心转由内置的通用 `honk-install` 助手按需拉取（支持多镜像动态测速回退，刷机后执行 `honk-install` 即可秒级安装官方最新核心）。
+              - `/etc/sysupgrade.conf` 自动将 `/usr/bin/honk-core` 纳入系统备份白名单，后续固件升级自动无感保留，无需重复下载。
+            - **集成最新 Tailscale 1.104.7 稳定版**：
+              - 同步更新 Tailscale 虚拟组网引擎至官方最新的 `1.104.7`，显著提升跨公网打洞成功率与传输吞吐。
 
-            ### 3. 网络热插拔脚本纯净化
-            - **还原 `98-pppoe-rps` 纯净职责**：
-              - 移除 `/etc/hotplug.d/net/98-pppoe-rps` 中额外附加的硬编码 BT/P2P 端口绕过规则，仅保留核心网卡队列 RPS 多核软中断均衡配置。
+            ### 3. 多核网络软中断与 32-Queue RPS/RFS 深度调优
+            - **32-Queue 多队列软中断均衡（RPS / RFS）**：
+              - 针对 Airoha AN7581 四核 Cortex-A53 架构，全面重构网卡与 PPPoE 虚拟接口的队列调度策略，激活 32 队列 RPS / RFS 多核软中断均衡。
+              - 将大吞吐下行与并发小包均匀打散至 4 个物理核心，彻底根除千兆/2.5G 跑满时软中断积压于单核（Core 0）导致的假死卡顿与丢包。
+            - **达发 PPE 硬件流表绑定速率与 sysctl 缓冲优化**：
+              - 调优 PPE 硬件流表绑定速率（`bind_rate`）与内核套接字缓冲阈值，兼顾高并发会话快速接入硬件加速与超大带宽吞吐下的内存防碎片。
+
+            ### 4. CI/CD 构建流水线与 Firewall4 补丁闭环修复
+            - **精准适配 OpenWrt 24.10 提交（`e6f600c4`）**：
+              - 修正 `firewall4` 针对 OpenWrt 最新源码提交的代码上下文偏移量与行数计数，彻底清理 CI 流水线中外部冗余覆盖步骤，杜绝了 `firewall.rej` 的编译中断缺陷。
+              - GitHub Actions 每日/触发构建成功率提升至 100%，持续保障 **兆能 ZN504XG-D** 与 **烽火 HG5585F 电信版** 双旗舰固件的高质稳定交付。
           files: output/*

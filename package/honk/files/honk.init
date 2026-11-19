@@ -77,6 +77,11 @@ start_service() {
 		return 1
 	fi
 
+	if [ ! -x "$PROG" ]; then
+		logger -t honk "honk-core binary '$PROG' is not installed; please run 'honk-install' to download official core"
+		return 0
+	fi
+
 	# apk does not stop at the failed check of vmlinux-btf-builtin, so a kernel
 	# without BTF can still get here
 	if [ ! -e /sys/kernel/btf/vmlinux ] && [ ! -e /usr/lib/debug/boot/vmlinux ]; then
