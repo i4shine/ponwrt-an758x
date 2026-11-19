@@ -220,6 +220,10 @@ if [ -w /sys/kernel/debug/ppe/bind_rate ]; then
     echo "5 5" > /sys/kernel/debug/ppe/bind_rate 2>/dev/null
 fi
 
+# 8. 若禁用硬件 PPE 卸载（如运行 Honk eBPF），开机末尾补刷全队列多核 RPS/RFS，防止 packet_steering=0 清零物理口队列
+if [ "$(uci -q get firewall.@defaults[0].flow_offloading_hw)" = "0" ] && [ -x /usr/bin/sb-bonk ]; then
+    /usr/bin/sb-bonk apply-rps >/dev/null 2>&1
+fi
 
 exit 0
 RCLOCAL
