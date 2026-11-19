@@ -136,9 +136,9 @@ jobs:
           # 避免多 profile 重复建 rootfs，同时保证 HG5382A 一定在列。
           # ------------------------------------------------------------------
           case "${{ inputs.devices }}" in
-            hg5585f-ct) DEVICES="fiberhome_hg5585f-ct" ;;
+            xg-040g-md-ubi) DEVICES="nokia_xg-040g-md-ubi" ;;
             hg5382a)    DEVICES="fiberhome_hg5382a" ;;
-            *)          DEVICES="fiberhome_hg5585f-ct fiberhome_hg5382a" ;;
+            *)          DEVICES="nokia_xg-040g-md-ubi fiberhome_hg5382a" ;;
           esac
 
           echo ">>> 目标机型: $DEVICES"
@@ -189,11 +189,6 @@ jobs:
       - name: Verify requested firmware exists
         run: |
           fail=0
-          case "${{ inputs.devices }}" in
-            hg5585f-ct|both)
-              ls output/*hg5585f-ct*sysupgrade*.itb >/dev/null 2>&1 \
-                || { echo "::error::缺少 HG5585F-CT 固件（预期 *hg5585f-ct*sysupgrade*.itb）"; fail=1; } ;;
-          esac
           case "${{ inputs.devices }}" in
             hg5382a|both)
               ls output/*hg5382a*sysupgrade*.itb >/dev/null 2>&1 \
