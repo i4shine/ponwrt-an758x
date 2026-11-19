@@ -1,4 +1,4 @@
-name: Build PonWrt (HG5585F-CT & HG5382A) manual
+name: Build PonWrt (xg-040g-md & HG5382A) manual
 
 # ==============================================================================
 # 本文件基于上游 .github/workflows/build-zn504.yml 修改而来（步骤顺序、依赖列表、
@@ -9,11 +9,10 @@ name: Build PonWrt (HG5585F-CT & HG5382A) manual
 #   2) 配置：只合并上游 configs/an7581.config + configs/release.config。
 #      configs/pon-packages/*.config 仅供 build-packages-incremental.yml 使用，
 #      固件不再选装自有包（内核能力由 config-6.18 的内置符号提供）；
-#   3) 机型：defconfig 之后锁定 HG5585F-CT / HG5382A，其它机型关闭
+#   3) 机型：defconfig 之后锁定 xg-040g-md / HG5382A，其它机型关闭
 #      （defconfig 会重算设备列表，因此机型锁定必须放在 defconfig 之后，且之后
 #       不再执行 defconfig）；
-#   4) 产物：上游 find 只匹配 zn504 / hg5585f-ct / hg5585f-cu，HG5382A 会被名字
-#      过滤静默丢弃；这里加上 *hg5382a* 并对目标机型做存在性硬校验；
+#   4) 产物：zn504 / xg-040g-md / HG5382A 
 #   5) 未改动：Feed 更新、customize.sh、包源码下载、编译命令、ccache 存取、
 #      产物 sha256、Artifact 上传、Release 发布流程。
 # ==============================================================================
@@ -28,12 +27,12 @@ on:
         type: choice
         options:
           - 'both'
-          - 'hg5585f-ct'
+          - 'xg-040g-md-ubi'
           - 'hg5382a'
       upload_release:
         description: 'Upload firmware to GitHub Releases'
         required: false
-        default: 'true'
+        default: true
         type: boolean
       cache_mode:
         description: '编译缓存模式 (使用缓存 / 重新编译 / 不使用缓存)'
@@ -55,7 +54,7 @@ env:
 
 jobs:
   build:
-    name: Build HG5585F-CT & HG5382A
+    name: Build XG-040G-MD & HG5382A
     runs-on: ubuntu-24.04
     timeout-minutes: 360
     permissions:
@@ -220,7 +219,7 @@ jobs:
           body: |
             ## 本次手动构建
 
-            - 机型：${{ inputs.devices }}（HG5585F-CT / HG5382A）
+            - 机型：${{ inputs.devices }}（XG-040G-MD / HG5382A）
             - 配置来源：`configs/an7581.config` + `configs/release.config`（不含自有包选装）
             - 内核能力来源：`target/linux/airoha/an7581/config-6.18` 的基础设施符号
             - 工作流基线：上游 `build-zn504.yml`（仅改触发方式、机型锁定与产物收集）
